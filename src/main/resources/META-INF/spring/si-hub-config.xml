@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:int="http://www.springframework.org/schema/integration"
+	xmlns:int-ip="http://www.springframework.org/schema/integration/ip"
+	xmlns:int-http="http://www.springframework.org/schema/integration/http"
+	xmlns:int-stream="http://www.springframework.org/schema/integration/stream"
+	xsi:schemaLocation="http://www.springframework.org/schema/integration/stream http://www.springframework.org/schema/integration/stream/spring-integration-stream-4.2.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/integration/ip http://www.springframework.org/schema/integration/ip/spring-integration-ip.xsd
+		http://www.springframework.org/schema/integration/http http://www.springframework.org/schema/integration/http/spring-integration-http.xsd
+		http://www.springframework.org/schema/integration http://www.springframework.org/schema/integration/spring-integration.xsd">
+
+	<!-- TO tcp application/server -->
+	<int:channel id="input" />
+	
+	<int:gateway id="simple.gateway"
+		service-interface="com.intelligrated.SimpleGateway"
+		default-request-channel="input"/>
+	
+	<int-ip:tcp-connection-factory id="client"
+		type="client"
+		host="localhost"
+		port="4444"
+		single-use="true"
+		so-timeout="10000"/>
+		
+	<int-ip:tcp-outbound-gateway id="outGateway"
+		request-channel="input"
+		reply-channel="clientBytes2StringChannel"
+		connection-factory="client"
+		request-timeout="10000"
+		reply-timeout="10000"/>		
+
+	<int:object-to-string-transformer id="clientBytes2String"
+		input-channel="clientBytes2StringChannel"
+		output-channel="broadcast.channel" />
+		
+<!-- 	<int:channel id="broadcast.channel" /> -->
+
+	<int:recipient-list-router id="tcp.broadcast.list"
+		input-channel="broadcast.channel">
+	 	<int:recipient channel="to.http" />
+	 	<!-- other channels to broadcast to -->
+	</int:recipient-list-router>
+	
+	<!-- TO HTTP restful endpoint -->
+	<!-- this sends the requests -->
+	<int:channel id="to.http" />
+	
+<!-- 	<int-http:outbound-gateway id="http-outbound-gateway" 
+		request-channel="to.http"
+		url="http://localhost:8080/howdy?message={msg}"
+		http-method="GET"
+		expected-response-type="java.lang.String"
+		charset="UTF-8"
+		reply-channel="from.http.pubsub.channel">
+		<int-http:uri-variable name="msg" expression="payload"/>
+	</int-http:outbound-gateway> -->
+	
+	
+	<!-- NOTE: http.inbound.channel is defined in servlet-config.xml -->
+	<int-http:outbound-gateway id="http-outbound-gateway" 
+		request-channel="to.http"
+		url="http://localhost:8080/howdy?message={msg}"
+		http-method="POST"
+		request-factory="requestFactory"
+		expected-response-type="java.lang.String"
+		charset="UTF-8"
+		reply-channel="receiveChannel">
+		<int-http:uri-variable name="msg" expression="payload"/>
+	</int-http:outbound-gateway>
+	
+	<bean id="requestFactory"
+	      class="org.springframework.http.client.SimpleClientHttpRequestFactory">
+	    <property name="connectTimeout" value="500"/>
+	    <property name="readTimeout"    value="500"/>
+	</bean>
+	
+	<int:object-to-json-transformer 
+		input-channel="receiveChannel" output-channel="print.service.channel"/>
+	
+	<int:service-activator input-channel="print.service.channel">
+    	<bean class="com.intelligrated.service.InboundHTTPPrinterService"/>
+	</int:service-activator>
+</beans>
